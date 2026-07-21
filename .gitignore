@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Conda environment (managed separately)
+singharbor/
+env/
+environment.yml
+
+# Runtime data
+data/
+logs/
+kernels/
+downloads/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local Codex/project guidance
+/AGENTS.md
+
+# Runtime config with secrets
+singharbor.json
+
+# Local TLS certificates and private keys
+certs/
+certificates/
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Environment
+.env
+.venv/
+venv/
