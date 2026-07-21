@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page quick-deploy-page">
+  <h1>{{ t('one_click_deploy') }}</h1>
+  <p class="page-lead">{{ t('one_click_deploy_desc') }}</p>
+
+  <div class="section">
+    <form id="quick-deploy-form">
+      <div class="quick-input-grid">
+        <section class="input-block">
+          <span class="input-block-number">1</span>
+          <div>
+            <h2>{{ t('domain_block') }}</h2>
+            <p>{{ t('domain_block_help') }}</p>
+            <div class="form-group">
+              <label for="quick-domain">{{ t('public_domain') }}</label>
+              <input id="quick-domain" name="public_domain" type="text" placeholder="proxy.example.com" autocomplete="off">
+            </div>
+          </div>
+        </section>
+
+        <section class="input-block">
+          <span class="input-block-number">2</span>
+          <div>
+            <h2>{{ t('certificate_block') }}</h2>
+            <p>{{ t('certificate_block_help') }}</p>
+            <div class="form-group">
+              <label for="quick-cert-dir">{{ t('certificate_directory') }}</label>
+              <input id="quick-cert-dir" name="certificate_directory" type="text" placeholder="/etc/letsencrypt/live/proxy.example.com" autocomplete="off">
+            </div>
+          </div>
+        </section>
+
+        <section class="input-block input-block-wide">
+          <span class="input-block-number">3</span>
+          <div>
+            <h2>{{ t('address_block') }}</h2>
+            <p>{{ t('address_block_help') }}</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="quick-ipv4">{{ t('public_ipv4') }}</label>
+                <input id="quick-ipv4" name="public_ipv4" type="text" placeholder="203.0.113.10">
+              </div>
+              <div class="form-group">
+                <label for="quick-ipv6">{{ t('public_ipv6') }}</label>
+                <input id="quick-ipv6" name="public_ipv6" type="text" placeholder="2001:db8::10">
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="field-note quick-note">{{ t('one_click_skip_note') }}</div>
+      <div class="field-note quick-note">{{ t('one_click_dns_note') }}</div>
+      <div id="quick-errors" class="form-error" role="alert"></div>
+      <button type="submit" class="btn btn-primary" id="quick-deploy-button">{{ t('deploy_all_supported') }}</button>
+    </form>
+  </div>
+
+  <div id="quick-result" class="section" hidden aria-live="polite">
+    <h2>{{ t('deployment_result') }}</h2>
+    <div id="quick-summary"></div>
+    <div id="quick-protocols" class="quick-protocol-grid"></div>
+    <div id="quick-skipped" class="subsection"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+window.QUICK_DEPLOY_I18N = {{ {
+  'confirm': t('confirm_deploy_all'),
+  'copy': t('copy'),
+  'copied': t('copied'),
+  'links': t('generated_links'),
+  'client_json': t('client_json'),
+  'skipped': t('skipped_protocols'),
+  'no_link': t('json_only'),
+  'loading': t('deploying_all')
+}|tojson }};
+</script>
+<script src="/static/js/quick_deploy.js"></script>
+{% endblock %}

@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <h1>{{ t('kernel_management') }}</h1>
+
+  <div class="section">
+    <h2>{{ t('current_kernel') }}</h2>
+    <div id="current-kernel">{{ t('loading') }}</div>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('set_kernel_path') }}</h2>
+    <form id="set-path-form" class="form-inline">
+      <input type="text" id="kernel-path" placeholder="Path to sing-box executable" style="flex:1">
+      <button type="button" class="btn" id="btn-detect">{{ t('auto_detect') }}</button>
+      <button type="submit" class="btn btn-primary">{{ t('set_path') }}</button>
+    </form>
+    <div id="path-result" style="margin-top:8px"></div>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('installed_versions') }}</h2>
+    <div id="versions-list">{{ t('loading') }}</div>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('check_updates') }}</h2>
+    <button class="btn btn-primary" id="btn-check-update">{{ t('check_update') }}</button>
+    <button class="btn btn-primary" id="btn-download-latest" style="margin-left:8px">Download Latest</button>
+    <div id="update-result" style="margin-top:8px"></div>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('download_version') }}</h2>
+    <form id="download-form" class="form-inline">
+      <input type="text" id="download-version" placeholder="e.g. 1.13.14" style="flex:1">
+      <button type="submit" class="btn btn-primary">{{ t('download') }}</button>
+    </form>
+    <div id="download-result" style="margin-top:8px"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+var t = {active:'{{ t("active") }}',pinned:'{{ t("pinned") }}',switch_t:'{{ t("switch") }}',pin_t:'{{ t("pin") }}',unpin:'{{ t("unpin") }}',no_versions:'{{ t("no_versions") }}',no_updates:'{{ t("no_updates") }}',loading:'{{ t("loading") }}'};
+async function loadKernel() {
+  try {
+    var v = await API.get('/api/kernel/version');
+    if (v.version) document.getElementById('current-kernel').innerHTML = '<strong>'+escHtml(v.version)+'</strong> '+escHtml(v.path)+(v.is_pinned?' ('+t.pinned+')':'');
+    else document.getElementById('current-kernel').textContent = t.no_versions;
+    var vs = await API.get('/api/kernel/versions');
+    var d = document.getElementById('versions-list');
+    if (vs.versions.length===0) { d.textContent = t.no_versions; return; }
+    d.innerHTML = vs.versions.map(function(ver){
+      return '<div class="list-item" data-version="'+escAttr(ver.version)+'"><strong>'+escHtml(ver.version)+'</strong> <span>'+escHtml(ver.path)+'</span>'+(ver.is_active?'<span class="badge badge-ok">'+t.active+'</span>':'')+(ver.is_pinned?'<span class="badge">'+t.pinned+'</span>':'')+(!ver.is_active?'<button class="btn btn-sm switch-btn">'+t.switch_t+'</button>':'')+'<button class="btn btn-sm pin-btn">'+(ver.is_pinned?t.unpin:t.pin_t)+'</button></div>';
+    }).join('');
+    d.querySelectorAll('.switch-btn').forEach(function(b){b.onclick=function(){switchVersion(b.parentElement.dataset.version);};});
+    d.querySelectorAll('.pin-btn').forEach(function(b){b.onclick=function(){var v_el=b.parentElement;var ver=v_el.dataset.version;var isPin=b.textContent===t.unpin;pinVersion(ver,!isPin);};});
+  } catch(e) { console.error(e); }
+}
+async function autoDetect() {
+  var btn = document.getElementById('btn-detect'); setLoading(btn);
+  try {
+    var r = await API.post('/api/kernel/detect',{paths:[]});
+    var d = document.getElementById('path-result');
+    if (r.found) { document.getElementById('kernel-path').value=r.path; d.innerHTML='<span class="text-ok">Found: '+escHtml(r.version)+'</span>'; }
+    else { d.innerHTML='<span class="text-err">Not found</span>'; }
+  } catch(e) { document.getElementById('path-result').innerHTML='<span class="text-err">Error</span>'; }
+  finally { resetLoading(btn); }
+}
+document.getElementById('set-path-form').addEventListener('submit',async function(e){
+  e.preventDefault();var btn=e.target.querySelector('button[type=submit]');setLoading(btn);
+  try {
+    var r=await API.post('/api/kernel/set-path',{path:document.getElementById('kernel-path').value});
+    var d=document.getElementById('path-result');
+    if(r.success){d.innerHTML='<span class="text-ok">'+escHtml(r.version)+'</span>';loadKernel();}
+    else d.innerHTML='<span class="text-err">'+escHtml(r.error)+'</span>';
+  }catch(ex){}
+  finally{resetLoading(btn);}
+});
+document.getElementById('download-form').addEventListener('submit',async function(e){
+  e.preventDefault();var btn=e.target.querySelector('button');setLoading(btn);
+  try {
+    document.getElementById('download-result').textContent='Downloading...';
+    var r=await API.post('/api/kernel/download',{version:document.getElementById('download-version').value});
+    if(r.success){document.getElementById('download-result').innerHTML='<span class="text-ok">OK '+escHtml(r.version)+'</span>';loadKernel();}
+    else document.getElementById('download-result').innerHTML='<span class="text-err">'+escHtml(r.error)+'</span>';
+  }catch(e){}
+  finally{resetLoading(btn);}
+});
+document.getElementById('btn-check-update').addEventListener('click',async function(){
+  var btn=this;setLoading(btn);
+  try {
+    var r=await API.get('/api/kernel/check-update');
+    var d=document.getElementById('update-result');
+    if(r.update)d.innerHTML='New: <strong>'+escHtml(r.update.version)+'</strong> ('+escHtml(r.update.tag)+')';
+    else d.textContent=t.no_updates;
+  }catch(e){}
+  finally{resetLoading(btn);}
+});
+document.getElementById('btn-download-latest').addEventListener('click',async function(){
+  var btn=this;setLoading(btn);
+  try{
+    document.getElementById('download-result').textContent='Fetching latest...';
+    var r=await API.post('/api/kernel/download-latest',{});
+    if(r.success){document.getElementById('download-result').innerHTML='<span class="text-ok">Downloaded '+escHtml(r.version)+'</span>';loadKernel();}
+    else document.getElementById('download-result').innerHTML='<span class="text-err">'+escHtml(r.error)+'</span>';
+  }catch(e){}finally{resetLoading(btn);}
+});
+document.getElementById('btn-detect').addEventListener('click',autoDetect);
+async function switchVersion(v){ try{var r=await API.post('/api/kernel/switch',{version:v});API.flash(r.success?'Switched':r.error);loadKernel();}catch(e){} }
+async function pinVersion(v,p){ try{await API.post('/api/kernel/pin',{version:v,pinned:p});loadKernel();}catch(e){} }
+loadKernel();
+</script>
+{% endblock %}

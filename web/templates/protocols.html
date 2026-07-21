@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <h1>{{ t('protocols') }}</h1>
+  <p>{{ t('available_protocols') }}</p>
+  <div id="protocols-grid" class="status-grid">{{ t('loading') }}</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadProtocols(){
+  try{
+    var r=await API.get('/api/protocols');
+    var g=document.getElementById('protocols-grid');
+    g.innerHTML=r.protocols.map(function(p){
+      return '<div class="card"><h3>'+escHtml(p.name)+'</h3><p>'+escHtml(p.description)+'</p><div class="card-tags">'+(p.supports_tls?'<span class="badge">{{ t("tls_key") }}</span>':'')+(p.supports_transport?'<span class="badge">{{ t("transport") }}</span>':'')+(p.supports_cloudflare_ws?'<span class="badge badge-ok">Cloudflare WS</span>':'')+(p.supports_multiplex?'<span class="badge">Multiplex</span>':'')+'</div><a href="/dashboard/wizard?type='+escAttr(p.type)+'" class="btn btn-primary">{{ t("deploy") }}</a></div>';
+    }).join('');
+  }catch(e){API.flash(e.message);}
+}
+loadProtocols();
+</script>
+{% endblock %}

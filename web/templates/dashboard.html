@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-page">
+  <h1>{{ t('dashboard') }}</h1>
+
+  <div class="status-grid">
+    <div class="status-card">
+      <h3>{{ t('singbox_status') }}</h3>
+      <div id="sb-status">{{ t('loading') }}</div>
+      <div id="sb-version"></div>
+    </div>
+    <div class="status-card">
+      <h3>{{ t('inbounds') }}</h3>
+      <div id="inbound-count">-</div>
+    </div>
+    <div class="status-card">
+      <h3>{{ t('platform') }}</h3>
+      <div id="platform-info">-</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('quick_actions') }}</h2>
+    <div class="action-grid">
+      <a href="/dashboard/quick-deploy" class="btn btn-primary">{{ t('one_click_deploy') }}</a>
+      <a href="/dashboard/wizard" class="btn btn-primary">{{ t('deploy_protocol') }}</a>
+      <a href="/dashboard/kernel" class="btn">{{ t('manage_kernel') }}</a>
+      <a href="/dashboard/config" class="btn">{{ t('view_config') }}</a>
+      <button class="btn" onclick="controlSingbox('start')">{{ t('start_singbox') }}</button>
+      <button class="btn btn-warn" onclick="controlSingbox('stop')">{{ t('stop_singbox') }}</button>
+      <button class="btn" onclick="controlSingbox('restart')">{{ t('restart_singbox') }}</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('recent_operations') }}</h2>
+    <div id="recent-logs" style="max-height:300px;overflow-y:auto"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadDashboard() {
+  try {
+    var p = await API.get('/api/process/status');
+    var el = document.getElementById('sb-status');
+    if (p.running) { el.textContent = '{{ t("running") }}'; el.className = 'badge badge-ok'; }
+    else { el.textContent = '{{ t("stopped") }}'; el.className = 'badge badge-warn'; }
+    if (!p.kernel_version) { el.textContent = '{{ t("not_configured") }}'; el.className = 'badge badge-warn'; }
+    document.getElementById('sb-version').textContent = p.kernel_version ? 'v' + p.kernel_version : '';
+    var ib = await API.get('/api/inbounds');
+    document.getElementById('inbound-count').textContent = ib.inbounds.length;
+    var pi = await API.get('/api/platform');
+    document.getElementById('platform-info').textContent = pi.platform.python_os + ' ' + pi.platform.arch;
+    var logs = await API.get('/api/logs');
+    var div = document.getElementById('recent-logs');
+    if (logs.logs.length === 0) { div.textContent = '{{ t("no_ops") }}'; return; }
+    div.innerHTML = logs.logs.slice(0,20).map(function(l){return '<div class="log-entry"><span class="log-time">'+escHtml(l.created_at)+'</span> '+escHtml(l.action)+': '+escHtml(l.result)+'</div>';}).join('');
+  } catch(e) { console.error(e); }
+}
+async function controlSingbox(action) {
+  if (action !== 'start' && !confirmAction('Are you sure?')) return;
+  var btn = event.target; setLoading(btn);
+  try { var r = await API.post('/api/process/' + action); API.flash(r.success ? 'OK' : r.error); loadDashboard(); }
+  catch(e) { API.flash('Error'); }
+  finally { resetLoading(btn); }
+}
+loadDashboard();
+</script>
+{% endblock %}

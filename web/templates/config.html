@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <h1>{{ t('configuration') }}</h1>
+  <div class="action-bar">
+    <button class="btn" id="btn-reload">{{ t('reload') }}</button>
+    <button class="btn" id="btn-check">{{ t('check_with_kernel') }}</button>
+    <button class="btn" id="btn-backup">{{ t('backup') }}</button>
+  </div>
+  <div class="section">
+    <div id="config-status" style="margin-bottom:8px"></div>
+    <textarea id="config-editor" style="width:100%;height:400px;font-family:monospace;font-size:13px"></textarea>
+    <div style="margin-top:8px">
+      <button class="btn btn-primary" id="btn-save">{{ t('save_config') }}</button>
+      <span id="save-result" style="margin-left:10px"></span>
+    </div>
+  </div>
+  <div class="section">
+    <h2>{{ t('backup_history') }}</h2>
+    <div id="backups-list">{{ t('loading') }}</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+var _t = {no_backups:'{{ t("no_backups") }}',restore:'{{ t("restore") }}'};
+async function loadConfig() {
+  try { var r = await API.get('/api/config'); document.getElementById('config-editor').value = r.raw; }
+  catch(e) {}
+}
+async function checkConfig() {
+  var btn=document.getElementById('btn-check');setLoading(btn);
+  try {
+    var config=JSON.parse(document.getElementById('config-editor').value);
+    var r=await API.post('/api/config/check',{config:config});
+    if(r.valid) document.getElementById('config-status').innerHTML='<span class="badge badge-ok">OK</span>';
+    else document.getElementById('config-status').innerHTML='<span class="badge badge-err">'+escHtml(r.message||'Invalid')+'</span>';
+  }catch(e){ document.getElementById('save-result').innerHTML='<span class="text-err">Invalid JSON</span>'; }
+  finally{resetLoading(btn);}
+}
+async function saveConfig() {
+  var btn=document.getElementById('btn-save');setLoading(btn);
+  try {
+    var config=JSON.parse(document.getElementById('config-editor').value);
+    var r=await API.put('/api/config',{config:config});
+    if(r.success){ document.getElementById('save-result').innerHTML='<span class="text-ok">OK</span>'; loadBackups(); }
+    else document.getElementById('save-result').innerHTML='<span class="text-err">'+escHtml(r.error)+'</span>';
+  }catch(e){ document.getElementById('save-result').innerHTML='<span class="text-err">Invalid JSON</span>'; }
+  finally{resetLoading(btn);}
+}
+async function backupConfig() {
+  var btn=document.getElementById('btn-backup');setLoading(btn);
+  try { var r=await API.post('/api/config/backup',{description:'manual'}); API.flash(r.success?'OK':r.error); loadBackups(); }
+  catch(e){} finally{resetLoading(btn);}
+}
+async function loadBackups() {
+  try {
+    var r=await API.get('/api/config/backups');
+    var d=document.getElementById('backups-list');
+    if(r.backups.length===0){ d.textContent=_t.no_backups; return; }
+    d.innerHTML=r.backups.map(function(b){return '<div class="list-item"><span>'+escHtml(b.filename)+'</span><span>'+escHtml((b.size/1024).toFixed(1))+' KB</span><span>'+escHtml(b.created)+'</span><button class="btn btn-sm restore-btn" data-file="'+escAttr(b.filename)+'">'+_t.restore+'</button></div>';}).join('');
+    d.querySelectorAll('.restore-btn').forEach(function(b){b.onclick=function(){restoreConfig(b.dataset.file);};});
+  }catch(e){}
+}
+async function restoreConfig(name) {
+  if(!confirmAction('Restore backup?'))return;
+  try{var r=await API.post('/api/config/restore',{backup:name});API.flash(r.success?'Restored':r.error);loadConfig();loadBackups();}catch(e){}
+}
+document.getElementById('btn-reload').addEventListener('click',loadConfig);
+document.getElementById('btn-check').addEventListener('click',checkConfig);
+document.getElementById('btn-save').addEventListener('click',saveConfig);
+document.getElementById('btn-backup').addEventListener('click',backupConfig);
+loadConfig();loadBackups();
+</script>
+{% endblock %}

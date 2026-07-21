@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="{{ 'zh-CN' if lang == 'zh' else 'en' }}" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>SingHarbor</title>
+<script>
+(function(){
+  var choice=localStorage.getItem('sh_theme')||'light';
+  var resolved=choice==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':choice==='system'?'light':choice;
+  document.documentElement.dataset.theme=resolved;
+  document.documentElement.dataset.themeChoice=choice;
+})();
+</script>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/theme.css">
+</head>
+<body>
+<a href="#main-content" class="skip-link">Skip to content</a>
+<div class="container">
+<header class="header">
+  <a href="/dashboard" class="logo">SingHarbor</a>
+  <nav class="nav" id="main-nav" hidden>
+    <a href="/dashboard">{{ t('home') }}</a>
+    <a href="/dashboard/kernel">{{ t('kernel') }}</a>
+    <a href="/dashboard/config">{{ t('config') }}</a>
+    <a href="/dashboard/inbounds">{{ t('inbounds') }}</a>
+    <a href="/dashboard/protocols">{{ t('protocols') }}</a>
+    <a href="/dashboard/quick-deploy">{{ t('one_click_deploy') }}</a>
+    <a href="/dashboard/wizard">{{ t('wizard') }}</a>
+    <a href="/dashboard/settings">{{ t('settings') }}</a>
+    <button type="button" class="nav-link nav-logout" id="logout-btn">{{ t('logout') }}</button>
+  </nav>
+  <div class="header-actions">
+    <button type="button" class="icon-btn" id="theme-toggle" aria-label="Toggle color theme" title="Toggle color theme">◐</button>
+    <button type="button" class="icon-btn nav-toggle" id="nav-toggle" aria-controls="main-nav" aria-expanded="false" hidden>☰</button>
+  </div>
+</header>
+
+<main id="main-content">
+{% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  {{ t('version') }}: {{ app_version }}
+  &middot;
+  sing-box: v{{ singbox_target }}
+  <span class="footer-actions">
+    <a href="#" class="lang-link {{ 'active' if lang == 'en' else '' }}" data-lang="en">EN</a>
+    &middot;
+    <a href="#" class="lang-link {{ 'active' if lang == 'zh' else '' }}" data-lang="zh">中文</a>
+  </span>
+</footer>
+</div>
+
+<script src="/static/js/app.js"></script>
+<script>initShell();initAuth();</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

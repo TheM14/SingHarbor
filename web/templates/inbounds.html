@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <h1>{{ t('inbounds') }}</h1>
+  <p>{{ t('detected_inbounds') }}</p>
+  <div id="inbounds-list">{{ t('loading') }}</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+var inboundClientOptions={};
+async function loadInbounds(){
+  try{
+    var r=await API.get('/api/inbounds');
+    var d=document.getElementById('inbounds-list');
+    if(r.inbounds.length===0){d.textContent='{{ t("no_inbounds") }}';return;}
+    inboundClientOptions={};
+    d.innerHTML = r.inbounds.map(function(ib){
+      inboundClientOptions[ib.tag]=ib.client_options||[];
+      var endpointHtml=(ib.client_options||[]).map(function(option){
+        return '<div class="endpoint-card" data-kind="'+escAttr(option.kind)+'">'+
+          '<div class="endpoint-title"><strong>'+escHtml(option.label)+'</strong><span class="badge '+(option.cloudflare_proxied?'badge-ok':'')+'">'+escHtml(option.cloudflare_proxied?'Cloudflare':option.kind.toUpperCase())+'</span></div>'+
+          '<code>'+escHtml(option.address)+'</code><div class="endpoint-actions">'+
+          (option.share_link?'<button class="btn btn-sm reveal-link-btn">{{ t("click_to_reveal") }}</button><button class="btn btn-sm copy-result-btn">{{ t("copy") }} Link</button>':'')+
+          '<button class="btn btn-sm copy-json-btn">{{ t("copy") }} JSON</button></div><code class="revealed-link" hidden></code></div>';
+      }).join('');
+      return '<div class="card" data-tag="'+escAttr(ib.tag)+'">'+
+        '<div style="display:flex;justify-content:space-between"><h3>'+escHtml(ib.tag)+'</h3>'+(ib.running?'<span class="badge badge-ok">{{ t("running") }}</span>':'<span class="badge badge-warn">{{ t("stopped") }}</span>')+'</div>'+
+        '<table class="info-table">'+
+        '<tr><td>{{ t("protocol") }}</td><td><strong>'+escHtml(ib.type)+'</strong></td></tr>'+
+        '<tr><td>{{ t("listen") }}</td><td>'+escHtml(String(ib.listen))+':'+escHtml(String(ib.listen_port))+'</td></tr>'+
+        '<tr><td>{{ t("tls_key") }}</td><td>'+(ib.tls&&ib.tls.enabled?'{{ t("enabled") }}':'{{ t("disabled") }}')+'</td></tr>'+
+        '<tr><td>{{ t("transport") }}</td><td>'+escHtml(ib.transport?ib.transport.type:'tcp')+'</td></tr>'+
+        '<tr><td>{{ t("users_keys") }}</td><td>'+escHtml(String(ib.user_count))+'</td></tr>'+
+        (ib.recognized?'':'<tr><td colspan="2"><em>{{ t("not_recognized") }}</em></td></tr>')+
+        '</table>'+
+        (endpointHtml?'<div class="endpoint-grid">'+endpointHtml+'</div>':'<div class="field-note">{{ t("no_public_endpoint") }}</div>')+
+        '<div style="margin-top:8px"><button class="btn btn-sm btn-warn delete-inbound-btn">{{ t("delete") }}</button></div>'+
+        '</div>';
+    }).join('');
+    function getOption(button){var card=button.closest('.card'),endpoint=button.closest('.endpoint-card');return (inboundClientOptions[card.dataset.tag]||[]).find(function(x){return x.kind===endpoint.dataset.kind;});}
+    d.querySelectorAll('.reveal-link-btn').forEach(function(el){el.onclick=function(){var option=getOption(el),target=el.closest('.endpoint-card').querySelector('.revealed-link');target.textContent=option.share_link;target.hidden=false;};});
+    d.querySelectorAll('.copy-result-btn').forEach(function(el){el.onclick=function(){var option=getOption(el);navigator.clipboard.writeText(option.share_link);API.flash('{{ t("copied") }}');};});
+    d.querySelectorAll('.copy-json-btn').forEach(function(el){el.onclick=function(){var option=getOption(el);navigator.clipboard.writeText(JSON.stringify(option.config_snippet,null,2));API.flash('{{ t("copied") }}');};});
+    d.querySelectorAll('.delete-inbound-btn').forEach(function(el){el.onclick=function(){deleteInbound(el.closest('.card').dataset.tag);};});
+  }catch(e){console.error(e);}
+}
+async function deleteInbound(tag){
+  if(!confirmAction('Delete?'))return;
+  try{var r=await API.del('/api/inbounds/'+encodeURIComponent(tag));API.flash(r.success?'OK':r.error);if(r.success)loadInbounds();}catch(e){}
+}
+loadInbounds();
+</script>
+{% endblock %}

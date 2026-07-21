@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <h1>{{ t('settings') }}</h1>
+
+  <div class="section">
+    <h2>{{ t('appearance') }}</h2>
+    <div class="form-group">
+      <label for="theme-select">{{ t('theme') }}</label>
+      <select id="theme-select">
+        <option value="light">{{ t('theme_light') }}</option>
+        <option value="dark">{{ t('theme_dark') }}</option>
+        <option value="system">{{ t('theme_system') }}</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('public_endpoints') }}</h2>
+    <p class="subsection-description">{{ t('public_endpoints_desc') }}</p>
+    <form id="endpoint-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="public-ipv4">{{ t('public_ipv4') }}</label>
+          <input type="text" id="public-ipv4" placeholder="203.0.113.10" inputmode="decimal">
+        </div>
+        <div class="form-group">
+          <label for="public-ipv6">{{ t('public_ipv6') }}</label>
+          <input type="text" id="public-ipv6" placeholder="2001:db8::10">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="public-domain">{{ t('public_domain') }}</label>
+          <input type="text" id="public-domain" placeholder="proxy.example.com" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="preferred-endpoint">{{ t('preferred_endpoint') }}</label>
+          <select id="preferred-endpoint">
+            <option value="domain">{{ t('domain') }}</option>
+            <option value="ipv4">IPv4</option>
+            <option value="ipv6">IPv6</option>
+          </select>
+        </div>
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="cloudflare-proxied">
+        <span>{{ t('cloudflare_orange_cloud') }}</span>
+      </label>
+      <button type="submit" class="btn btn-primary">{{ t('save_endpoints') }}</button>
+      <span id="endpoint-result" role="status"></span>
+    </form>
+
+    <div class="subsection">
+      <h3>{{ t('cloudflare_dns') }}</h3>
+      <p class="subsection-description">{{ t('cloudflare_dns_desc') }}</p>
+      <form id="cloudflare-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="cloudflare-zone-id">{{ t('zone_id') }}</label>
+            <input type="text" id="cloudflare-zone-id" maxlength="32" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="cloudflare-token">{{ t('api_token') }}</label>
+            <input type="password" id="cloudflare-token" autocomplete="off">
+            <div class="form-help">{{ t('token_not_saved') }}</div>
+          </div>
+        </div>
+        <div class="action-grid">
+          <button type="button" class="btn" id="btn-dns-preview">{{ t('preview_dns') }}</button>
+          <button type="submit" class="btn btn-primary">{{ t('sync_dns') }}</button>
+        </div>
+        <div id="cloudflare-result" role="status"></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('change_password') }}</h2>
+    <form id="pwd-form" class="form-card">
+      <div class="form-group"><label>{{ t('current_pwd') }}</label><input type="password" id="old-pwd" required></div>
+      <div class="form-group"><label>{{ t('new_pwd') }}</label><input type="password" id="new-pwd" required minlength="8"></div>
+      <div class="form-group"><label>{{ t('confirm_pwd') }}</label><input type="password" id="new-pwd2" required minlength="8"></div>
+      <button type="submit" class="btn btn-primary">{{ t('change_pwd_btn') }}</button>
+      <div id="pwd-result" style="margin-top:8px"></div>
+    </form>
+  </div>
+
+  <div class="section">
+    <h2>{{ t('app_info') }}</h2>
+    <table class="info-table">
+      <tr><td>{{ t('version') }}</td><td>{{ app_version }}</td></tr>
+      <tr><td>sing-box</td><td>v{{ singbox_target }}</td></tr>
+      <tr><td>{{ t('data_dir') }}</td><td id="app-data-dir"></td></tr>
+      <tr><td>{{ t('language') }}</td><td>
+        <select id="lang-select">
+          <option value="en" {% if lang == 'en' %}selected{% endif %}>English</option>
+          <option value="zh" {% if lang == 'zh' %}selected{% endif %}>中文</option>
+        </select>
+      </td></tr>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('pwd-form').addEventListener('submit',async function(e){
+  e.preventDefault();var btn=e.target.querySelector('button');setLoading(btn);
+  var n1=document.getElementById('new-pwd').value,n2=document.getElementById('new-pwd2').value;
+  if(n1!==n2){document.getElementById('pwd-result').innerHTML='<span class="text-err">Passwords do not match</span>';resetLoading(btn);return;}
+  try{
+    var r=await API.post('/auth/change-password',{old_password:document.getElementById('old-pwd').value,new_password:n1});
+    document.getElementById('pwd-result').innerHTML=r.success?'<span class="text-ok">{{ t("pwd_changed") }}</span>':'<span class="text-err">'+escHtml(r.error)+'</span>';
+    if(r.success){document.getElementById('old-pwd').value='';document.getElementById('new-pwd').value='';document.getElementById('new-pwd2').value='';}
+  }catch(e){document.getElementById('pwd-result').innerHTML='<span class="text-err">'+escHtml(e.message)+'</span>';}finally{resetLoading(btn);}
+});
+document.getElementById('lang-select').addEventListener('change',function(){setLang(this.value);});
+document.getElementById('theme-select').addEventListener('change',function(){applyTheme(this.value);});
+
+function endpointPayload(){
+  return {
+    public_ipv4:document.getElementById('public-ipv4').value.trim(),
+    public_ipv6:document.getElementById('public-ipv6').value.trim(),
+    public_domain:document.getElementById('public-domain').value.trim(),
+    preferred_endpoint:document.getElementById('preferred-endpoint').value,
+    cloudflare_proxied:document.getElementById('cloudflare-proxied').checked,
+    cloudflare_zone_id:document.getElementById('cloudflare-zone-id').value.trim()
+  };
+}
+
+function cloudflarePayload(){
+  var data=endpointPayload();
+  data.zone_id=data.cloudflare_zone_id;
+  data.hostname=data.public_domain;
+  data.api_token=document.getElementById('cloudflare-token').value;
+  data.ttl=300;
+  return data;
+}
+
+function renderDnsPlan(plan){
+  var rows=plan.records.map(function(r){return '<li><strong>'+escHtml(r.type)+'</strong> '+escHtml(r.name)+' → '+escHtml(r.content)+'</li>';}).join('');
+  return '<div class="field-note"><strong>'+(plan.proxied?'Cloudflare proxy':'DNS only')+'</strong><ul>'+rows+'</ul></div>';
+}
+
+document.getElementById('endpoint-form').addEventListener('submit',async function(e){
+  e.preventDefault();var btn=e.target.querySelector('button[type=submit]');setLoading(btn);
+  try{
+    await API.put('/api/settings/public-endpoints',endpointPayload());
+    document.getElementById('endpoint-result').innerHTML='<span class="text-ok"> {{ t("saved") }}</span>';
+  }catch(err){document.getElementById('endpoint-result').innerHTML='<span class="text-err"> '+escHtml(err.message)+'</span>';}
+  finally{resetLoading(btn);}
+});
+
+document.getElementById('btn-dns-preview').addEventListener('click',async function(){
+  var btn=this;setLoading(btn);
+  try{var r=await API.post('/api/cloudflare/dns/preview',cloudflarePayload());document.getElementById('cloudflare-result').innerHTML=renderDnsPlan(r.plan);}
+  catch(err){document.getElementById('cloudflare-result').innerHTML='<p class="text-err">'+escHtml(err.message)+'</p>';}
+  finally{resetLoading(btn);}
+});
+
+document.getElementById('cloudflare-form').addEventListener('submit',async function(e){
+  e.preventDefault();var btn=e.target.querySelector('button[type=submit]');setLoading(btn);
+  try{
+    var preview=await API.post('/api/cloudflare/dns/preview',cloudflarePayload());
+    document.getElementById('cloudflare-result').innerHTML=renderDnsPlan(preview.plan);
+    if(!confirmAction('{{ t("confirm_dns_sync") }}'))return;
+    var payload=cloudflarePayload();payload.preview_token=preview.preview_token;
+    var r=await API.post('/api/cloudflare/dns/sync',payload);
+    document.getElementById('cloudflare-result').innerHTML=renderDnsPlan(r.plan)+'<p class="text-ok">'+escHtml(r.results.map(function(x){return x.type+': '+x.action;}).join(', '))+'</p>';
+    document.getElementById('cloudflare-token').value='';
+  }catch(err){document.getElementById('cloudflare-result').innerHTML='<p class="text-err">'+escHtml(err.message)+'</p>';}
+  finally{resetLoading(btn);}
+});
+
+async function loadSettings(){
+  try{
+    var s=await API.get('/api/settings'),p=s.public_endpoints||{};
+    document.getElementById('app-data-dir').textContent=s.data_dir;
+    document.getElementById('public-ipv4').value=p.public_ipv4||'';
+    document.getElementById('public-ipv6').value=p.public_ipv6||'';
+    document.getElementById('public-domain').value=p.public_domain||'';
+    document.getElementById('preferred-endpoint').value=p.preferred_endpoint||'domain';
+    document.getElementById('cloudflare-proxied').checked=!!p.cloudflare_proxied;
+    document.getElementById('cloudflare-zone-id').value=s.cloudflare_zone_id||'';
+    applyTheme(localStorage.getItem('sh_theme')||'light');
+  }catch(e){API.flash(e.message);}
+}
+loadSettings();
+</script>
+{% endblock %}
