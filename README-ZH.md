@@ -35,14 +35,6 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
-也可以直接使用项目自带的 `environment.yml`：
-
-```bash
-conda env create -f environment.yml
-conda activate singharbor
-python run.py
-```
-
 ## 标准 venv 部署
 
 ### Linux / macOS

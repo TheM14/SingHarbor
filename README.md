@@ -38,14 +38,6 @@ python -m pip install -r requirements.txt
 python run.py
 ```
 
-The included `environment.yml` provides the same dependency set:
-
-```bash
-conda env create -f environment.yml
-conda activate singharbor
-python run.py
-```
-
 ## Standard venv deployment
 
 ### Linux / macOS

@@ -12,6 +12,9 @@ htmlcov/
 dist/
 build/
 
+# Local test suite
+/tests/
+
 # Conda environment (managed separately)
 singharbor/
 env/
