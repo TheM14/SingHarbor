@@ -158,6 +158,15 @@ class AppConfig:
         if stored.pop(str(tag), None) is not None:
             self.update("inbound_endpoint_profiles", stored)
 
+    def replace_inbound_endpoint_profile(self, old_tag: str, new_tag: str,
+                                         profile: dict | None):
+        """Move/update one inbound profile with a single settings save."""
+        stored = dict(self._data.get("inbound_endpoint_profiles", {}))
+        stored.pop(str(old_tag), None)
+        if profile is not None:
+            stored[str(new_tag)] = dict(profile)
+        self.update("inbound_endpoint_profiles", stored)
+
     def ensure_dirs(self):
         for d in [self.data_dir, self.log_dir, self.backup_dir,
                    self.downloads_dir, self.kernels_dir]:

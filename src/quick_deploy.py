@@ -9,12 +9,15 @@ import time
 from pathlib import Path
 
 from .endpoints import (
+    as_bool,
     build_client_bundle,
     normalize_domain,
     normalize_ip,
+    normalize_ip_literal,
 )
+from .certificates import CertificateIssueError
 from .protocols import get_server_protocols
-from .utils import generate_password, generate_uuid
+from .utils import generate_password, generate_uuid, json_save_atomic
 
 
 NATIVE_DIRECT_PROTOCOLS = ("shadowsocks", "vmess", "vless")
@@ -34,6 +37,7 @@ DIRECT_PORTS = {
 # One-click deployment reserves 443 for Nginx-hosted WebUIs.  Manual
 # deployments may still choose 443 explicitly when Nginx is not using it.
 CDN_PORTS = (2053, 2083, 2087, 2096, 8443)
+NO_NEW_INBOUNDS = "No new protocol inbounds can be deployed with these inputs."
 
 MANUAL_ONLY_REASONS = {
     "shadowtls": (
@@ -174,10 +178,12 @@ def find_certificate_pair(directory: str, domain: str) -> tuple[str, str]:
 class QuickDeploymentService:
     """Build and atomically deploy every protocol supported by simple inputs."""
 
-    def __init__(self, config_mgr, process_mgr=None, app_config=None):
+    def __init__(self, config_mgr, process_mgr=None, app_config=None,
+                 certificate_issuer=None):
         self.config_mgr = config_mgr
         self.process_mgr = process_mgr
         self.app_config = app_config
+        self.certificate_issuer = certificate_issuer
 
     @staticmethod
     def _base_params(protocol_type: str, proto) -> dict:
@@ -213,16 +219,18 @@ class QuickDeploymentService:
             "public_ipv4": ipv4,
             "public_ipv6": ipv6,
             "public_domain": "",
+            "cloudflare_preferred_ip": "",
             "preferred_endpoint": "ipv4" if ipv4 else "ipv6",
             "cloudflare_proxied": False,
         }
 
     @staticmethod
-    def _cdn_profile(domain: str) -> dict:
+    def _cdn_profile(domain: str, cloudflare_preferred_ip: str = "") -> dict:
         return {
             "public_ipv4": "",
             "public_ipv6": "",
             "public_domain": domain,
+            "cloudflare_preferred_ip": cloudflare_preferred_ip,
             "preferred_endpoint": "domain",
             "cloudflare_proxied": True,
         }
@@ -248,7 +256,10 @@ class QuickDeploymentService:
         return None
 
     @staticmethod
-    def _normalize_inputs(values: dict) -> tuple[dict, list[str], list[str]]:
+    def _normalize_inputs(
+        values: dict,
+        issued_certificate: dict | None = None,
+    ) -> tuple[dict, list[str], list[str]]:
         errors = []
         warnings = []
         try:
@@ -266,6 +277,13 @@ class QuickDeploymentService:
         except ValueError as exc:
             domain = ""
             errors.append(f"public_domain: {exc}")
+        try:
+            cloudflare_preferred_ip = normalize_ip_literal(
+                values.get("cloudflare_preferred_ip", "")
+            )
+        except ValueError as exc:
+            cloudflare_preferred_ip = ""
+            errors.append(f"cloudflare_preferred_ip: {exc}")
 
         certificate_directory = str(
             values.get("certificate_directory", "") or ""
@@ -279,7 +297,7 @@ class QuickDeploymentService:
                 )
             except ValueError as exc:
                 errors.append(str(exc))
-        elif domain and not certificate_directory:
+        elif domain and not certificate_directory and not issued_certificate:
             warnings.append(
                 "Domain/CDN and TLS-only protocols were skipped because the "
                 "certificate directory is empty."
@@ -289,7 +307,23 @@ class QuickDeploymentService:
                 "The certificate directory was ignored because the domain is empty."
             )
 
-        tls_ready = bool(domain and certificate_path and key_path)
+        issued_certificate_path = str(
+            (issued_certificate or {}).get("certificate_path", "")
+        ).strip()
+        issued_key_path = str(
+            (issued_certificate or {}).get("key_path", "")
+        ).strip()
+        direct_certificate_path = issued_certificate_path or certificate_path
+        direct_key_path = issued_key_path or key_path
+        # A public Let's Encrypt certificate can also serve the CDN endpoint
+        # when no separate Origin CA/public certificate directory was supplied.
+        cdn_certificate_path = certificate_path or issued_certificate_path
+        cdn_key_path = key_path or issued_key_path
+        direct_tls_ready = bool(
+            domain and direct_certificate_path and direct_key_path
+        )
+        cdn_tls_ready = bool(domain and cdn_certificate_path and cdn_key_path)
+        tls_ready = direct_tls_ready or cdn_tls_ready
         if not ipv4 and not ipv6 and not tls_ready and not errors:
             errors.append(
                 "Provide at least one valid IPv4/IPv6 address, or a domain "
@@ -299,14 +333,22 @@ class QuickDeploymentService:
             "public_ipv4": ipv4,
             "public_ipv6": ipv6,
             "public_domain": domain,
+            "cloudflare_preferred_ip": cloudflare_preferred_ip,
             "certificate_directory": certificate_directory,
-            "certificate_path": certificate_path,
-            "key_path": key_path,
+            "certificate_path": cdn_certificate_path,
+            "key_path": cdn_key_path,
+            "direct_certificate_path": direct_certificate_path,
+            "direct_key_path": direct_key_path,
+            "direct_tls_ready": direct_tls_ready,
+            "cdn_tls_ready": cdn_tls_ready,
             "tls_ready": tls_ready,
         }, errors, warnings
 
-    def build_plan(self, values: dict, kernel_version: str = "") -> dict:
-        inputs, errors, warnings = self._normalize_inputs(values)
+    def build_plan(self, values: dict, kernel_version: str = "",
+                   issued_certificate: dict | None = None) -> dict:
+        inputs, errors, warnings = self._normalize_inputs(
+            values, issued_certificate
+        )
         result = {
             "inputs": inputs,
             "inbounds": [],
@@ -334,7 +376,8 @@ class QuickDeploymentService:
         }
 
         has_ip = bool(inputs["public_ipv4"] or inputs["public_ipv6"])
-        tls_ready = inputs["tls_ready"]
+        direct_tls_ready = inputs["direct_tls_ready"]
+        cdn_tls_ready = inputs["cdn_tls_ready"]
         base_params = {
             ptype: self._base_params(ptype, proto)
             for ptype, proto in protocols.items()
@@ -366,11 +409,11 @@ class QuickDeploymentService:
         direct_profile = self._direct_profile(
             inputs["public_ipv4"], inputs["public_ipv6"]
         )
-        tls_config = {
+        direct_tls_config = {
             "enabled": True,
             "server_name": inputs["public_domain"],
-            "certificate_path": inputs["certificate_path"],
-            "key_path": inputs["key_path"],
+            "certificate_path": inputs["direct_certificate_path"],
+            "key_path": inputs["direct_key_path"],
         }
 
         def add_entry(ptype: str, role: str, port: int | None,
@@ -420,7 +463,7 @@ class QuickDeploymentService:
             for ptype in NATIVE_DIRECT_PROTOCOLS:
                 reasons[ptype].append("Direct IP deployment skipped: no IP address.")
 
-        if has_ip and tls_ready:
+        if has_ip and direct_tls_ready:
             for ptype in TLS_DIRECT_PROTOCOLS:
                 if ptype in blocked:
                     continue
@@ -429,15 +472,17 @@ class QuickDeploymentService:
                     "tls-direct",
                     self._allocate_direct_port(DIRECT_PORTS[ptype], used_ports),
                     direct_profile,
-                    {"tls": tls_config},
+                    {"tls": direct_tls_config},
                 )
         else:
             missing = "no IP address" if not has_ip else "domain/certificate incomplete"
             for ptype in TLS_DIRECT_PROTOCOLS:
                 reasons[ptype].append(f"TLS direct deployment skipped: {missing}.")
 
-        if tls_ready:
-            cdn_profile = self._cdn_profile(inputs["public_domain"])
+        if cdn_tls_ready:
+            cdn_profile = self._cdn_profile(
+                inputs["public_domain"], inputs["cloudflare_preferred_ip"]
+            )
             for ptype in CDN_PROTOCOLS:
                 if ptype in blocked:
                     continue
@@ -494,20 +539,159 @@ class QuickDeploymentService:
             })
 
         if not result["inbounds"]:
-            result["errors"].append(
-                "No new protocol inbounds can be deployed with these inputs."
-            )
+            result["errors"].append(NO_NEW_INBOUNDS)
         return result
+
+    def _issue_direct_certificate(self, values: dict) -> dict | None:
+        if not as_bool(values.get("lets_encrypt_enabled", False)):
+            return None
+        if self.certificate_issuer is None:
+            raise CertificateIssueError(
+                "Let's Encrypt certificate service is not configured"
+            )
+        try:
+            domain = normalize_domain(values.get("public_domain", ""))
+            ipv4 = normalize_ip(values.get("public_ipv4", ""), 4)
+            ipv6 = normalize_ip(values.get("public_ipv6", ""), 6)
+            normalize_ip_literal(values.get("cloudflare_preferred_ip", ""))
+        except ValueError as exc:
+            raise CertificateIssueError(f"Let's Encrypt input: {exc}") from exc
+        if not domain:
+            raise CertificateIssueError(
+                "A public domain is required for Let's Encrypt"
+            )
+        if not ipv4 and not ipv6:
+            raise CertificateIssueError(
+                "A public IPv4 or IPv6 address is required for TLS Direct"
+            )
+        certificate_directory = str(
+            values.get("certificate_directory", "") or ""
+        ).strip()
+        if certificate_directory:
+            try:
+                find_certificate_pair(certificate_directory, domain)
+            except ValueError as exc:
+                raise CertificateIssueError(str(exc)) from exc
+        return self.certificate_issuer.issue(
+            domain,
+            values.get("lets_encrypt_email", ""),
+            values.get("cloudflare_api_token", ""),
+        )
+
+    def _is_direct_tls_inbound(self, inbound: dict) -> bool:
+        """Identify native TLS Direct independently of optional metadata."""
+        if inbound.get("type") not in TLS_DIRECT_PROTOCOLS:
+            return False
+        tls = inbound.get("tls")
+        if not isinstance(tls, dict) or tls.get("enabled") is False:
+            return False
+        profiles = (
+            self.app_config.inbound_endpoint_profiles
+            if self.app_config else {}
+        )
+        tag = str(inbound.get("tag", ""))
+        profile = profiles.get(tag, {})
+        transport_type = str(
+            (inbound.get("transport") or {}).get("type", "")
+        ).lower()
+        # Trojan is the only member that can also be a Cloudflare WebSocket
+        # inbound.  Preserve those CDN listeners and their Origin CA cert.
+        is_cdn = bool(
+            tag.endswith("-cdn")
+            or profile.get("cloudflare_proxied")
+            or transport_type in {"ws", "httpupgrade", "grpc"}
+        )
+        return not is_cdn
+
+    def _take_over_direct_tls(self, config: dict, certificate: dict) -> list[str]:
+        """Point every existing native TLS Direct inbound at the public cert."""
+        if not certificate:
+            return []
+        updated = []
+        for inbound in config.get("inbounds", []):
+            if not self._is_direct_tls_inbound(inbound):
+                continue
+            tag = str(inbound.get("tag", ""))
+            tls = inbound.get("tls")
+            tls.update({
+                "enabled": True,
+                "server_name": certificate["domain"],
+                "certificate_path": certificate["certificate_path"],
+                "key_path": certificate["key_path"],
+            })
+            updated.append(tag)
+        return updated
 
     def deploy(self, values: dict, kernel_path: Path, config_path: Path,
                kernel_version: str = "", restart: bool = True) -> dict:
-        plan = self.build_plan(values, kernel_version)
-        if plan["errors"]:
-            return {"success": False, "message": "; ".join(plan["errors"]), **plan}
+        try:
+            issued_certificate = self._issue_direct_certificate(values)
+        except CertificateIssueError as exc:
+            return {
+                "success": False,
+                "message": str(exc),
+                "inputs": {},
+                "inbounds": [],
+                "profiles": {},
+                "protocols": [],
+                "warnings": [],
+                "errors": [str(exc)],
+            }
 
-        ok, message = self.config_mgr.add_inbounds(
-            plan["inbounds"], kernel_path
+        plan = self.build_plan(
+            values, kernel_version, issued_certificate=issued_certificate
         )
+        config = self.config_mgr.read()
+        updated_tls_tags = self._take_over_direct_tls(
+            config, issued_certificate or {}
+        )
+        blocking_errors = [
+            error for error in plan["errors"]
+            if error != NO_NEW_INBOUNDS
+        ]
+        if blocking_errors:
+            return {
+                "success": False,
+                "message": "; ".join(blocking_errors),
+                **plan,
+            }
+        if not plan["inbounds"] and not updated_tls_tags:
+            return {
+                "success": False,
+                "message": "; ".join(plan["errors"]),
+                **plan,
+            }
+        if updated_tls_tags:
+            plan["errors"] = [
+                error for error in plan["errors"]
+                if error != NO_NEW_INBOUNDS
+            ]
+
+        config.setdefault("inbounds", []).extend(plan["inbounds"])
+        configured_tls_tags = []
+        if issued_certificate:
+            expected_certificate = issued_certificate["certificate_path"]
+            expected_key = issued_certificate["key_path"]
+            for inbound in config.get("inbounds", []):
+                if not self._is_direct_tls_inbound(inbound):
+                    continue
+                tls = inbound.get("tls") or {}
+                if (
+                    tls.get("certificate_path") == expected_certificate
+                    and tls.get("key_path") == expected_key
+                ):
+                    configured_tls_tags.append(str(inbound.get("tag", "")))
+            if not configured_tls_tags:
+                return {
+                    "success": False,
+                    "message": (
+                        "Let's Encrypt succeeded, but no TLS Direct inbound "
+                        "accepted the issued certificate. Configuration was not saved."
+                    ),
+                    **plan,
+                }
+
+        ok, message = self.config_mgr.set_config(config, kernel_path)
         if not ok:
             return {
                 "success": False,
@@ -515,13 +699,59 @@ class QuickDeploymentService:
                 **plan,
             }
 
+        if issued_certificate:
+            saved_by_tag = {
+                str(item.get("tag", "")): item
+                for item in self.config_mgr.read().get("inbounds", [])
+            }
+            mismatched = []
+            for tag in configured_tls_tags:
+                tls = (saved_by_tag.get(tag, {}).get("tls") or {})
+                if (
+                    tls.get("certificate_path")
+                    != issued_certificate["certificate_path"]
+                    or tls.get("key_path") != issued_certificate["key_path"]
+                ):
+                    mismatched.append(tag)
+            if mismatched:
+                return {
+                    "success": False,
+                    "message": (
+                        "Saved configuration did not retain the Let's Encrypt "
+                        f"certificate for: {', '.join(mismatched)}"
+                    ),
+                    **plan,
+                }
+            receipt_path = str(issued_certificate.get("receipt_path", "")).strip()
+            if receipt_path:
+                try:
+                    receipt = {
+                        **issued_certificate,
+                        "updated_inbounds": updated_tls_tags,
+                        "configured_inbounds": configured_tls_tags,
+                    }
+                    json_save_atomic(receipt, Path(receipt_path))
+                    try:
+                        Path(receipt_path).chmod(0o600)
+                    except OSError:
+                        pass
+                except OSError as exc:
+                    plan["warnings"].append(
+                        "Certificate was configured, but the verification "
+                        f"receipt could not be updated: {exc}"
+                    )
+
         if self.app_config:
-            self.app_config.set_inbound_endpoint_profiles(plan["profiles"])
+            if plan["profiles"]:
+                self.app_config.set_inbound_endpoint_profiles(plan["profiles"])
             inputs = plan["inputs"]
             public_profile = {
                 "public_ipv4": inputs["public_ipv4"],
                 "public_ipv6": inputs["public_ipv6"],
                 "public_domain": inputs["public_domain"] if inputs["tls_ready"] else "",
+                "cloudflare_preferred_ip": (
+                    inputs["cloudflare_preferred_ip"] if inputs["tls_ready"] else ""
+                ),
                 "preferred_endpoint": (
                     "domain" if inputs["tls_ready"] else
                     "ipv4" if inputs["public_ipv4"] else "ipv6"
@@ -549,11 +779,23 @@ class QuickDeploymentService:
         deployed_protocols = sum(
             item["status"] == "planned" for item in plan["protocols"]
         )
+        message = (
+            f"Deployed {len(plan['inbounds'])} inbounds across "
+            f"{deployed_protocols} protocols."
+        )
+        if issued_certificate:
+            message += (
+                f" Configured the verified Let's Encrypt certificate on "
+                f"{len(configured_tls_tags)} direct inbounds."
+            )
+        message += restart_message
         return {
             "success": True,
-            "message": (
-                f"Deployed {len(plan['inbounds'])} inbounds across "
-                f"{deployed_protocols} protocols.{restart_message}"
-            ),
+            "message": message,
+            "certificate": ({
+                **issued_certificate,
+                "updated_inbounds": updated_tls_tags,
+                "configured_inbounds": configured_tls_tags,
+            } if issued_certificate else None),
             **plan,
         }

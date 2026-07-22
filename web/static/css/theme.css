@@ -227,6 +227,44 @@ pre, .code-panel {
 .endpoint-card .revealed-link { margin-top: 10px; padding: 8px; border-radius: 7px; background: var(--surface); }
 .endpoint-card .endpoint-title { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .endpoint-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.page-title-row, .card-title-row, .dialog-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.page-title-row h1, .card-title-row h3, .dialog-title-row h2 { margin-top: 0; }
+.export-actions { justify-content: flex-end; margin-top: 0; }
+.card-actions { margin-top: 14px; }
+.share-qr {
+  display: block;
+  width: min(240px, 100%);
+  height: auto;
+  margin: 14px auto 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+.edit-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(900px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.edit-dialog::backdrop { background: rgb(15 23 42 / 55%); }
+.edit-dialog .form-group { margin-bottom: 14px; }
+.edit-dialog .form-group label { display: block; margin-bottom: 6px; }
+.json-editor { width: 100%; min-height: 310px; font-family: monospace; font-size: 13px; }
+.json-editor-small { min-height: 190px; }
 
 .wizard-steps { display: flex; gap: 8px; margin-bottom: 20px; }
 .wizard-step { flex: 1; height: 4px; border-radius: 99px; background: var(--border); }
@@ -252,6 +290,12 @@ pre, .code-panel {
 .input-block h2 { margin: 0 0 3px; font-size: 17px; }
 .input-block p { margin-bottom: 12px; color: var(--dim); font-size: 13px; }
 .input-block .form-group { margin-bottom: 0; }
+#quick-le-fields {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+#quick-le-fields[hidden] { display: none; }
 .input-block-number {
   display: grid;
   place-items: center;
@@ -281,6 +325,8 @@ pre, .code-panel {
 .quick-deploy-page ul { padding-left: 20px; color: var(--text-soft); }
 
 @media (max-width: 920px) {
+  .page-title-row { display: block; }
+  .export-actions { justify-content: flex-start; margin-bottom: 16px; }
   .nav-toggle { display: inline-block; }
   .nav {
     display: none;

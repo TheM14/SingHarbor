@@ -21,6 +21,7 @@
   function addProtocolField(container, field) {
     const group = document.createElement('div');
     group.className = 'form-group';
+    group.dataset.fieldName = field.name;
     const label = document.createElement('label');
     label.htmlFor = `field-${field.name}`;
     label.textContent = field.name === 'listen_port'
@@ -57,12 +58,13 @@
       });
     } else {
       input = document.createElement('input');
-      input.type = field.type === 'int' ? 'number' : field.type === 'password' ? 'password' : 'text';
+      input.type = field.type === 'int' ? 'number' :
+        ['password', 'secret'].includes(field.type) ? 'password' : 'text';
       input.value = value === undefined || value === null ? '' : String(value);
       if (field.min !== null && field.min !== undefined) input.min = field.min;
       if (field.max !== null && field.max !== undefined) input.max = field.max;
       if (field.required) input.required = true;
-      input.autocomplete = field.type === 'password' ? 'new-password' : 'off';
+      input.autocomplete = ['password', 'secret'].includes(field.type) ? 'new-password' : 'off';
     }
     input.id = `field-${field.name}`;
     input.name = field.name;
@@ -87,6 +89,7 @@
 
   function loadConnectionDefaults(supportsCloudflare) {
     ['public_ipv4', 'public_ipv6', 'public_domain', 'preferred_endpoint',
+      'cloudflare_preferred_ip',
       'ws_enabled', 'ws_path', 'tls_enabled', 'tls_server_name',
       'tls_certificate_path', 'tls_key_path', 'cloudflare_proxied',
       'cdn_listen_port'
@@ -100,6 +103,7 @@
       document.getElementById('ws-enabled').checked = true;
       document.getElementById('tls-enabled').checked = true;
     }
+    toggleCloudflareFields();
     toggleTlsFields();
   }
 
@@ -151,6 +155,7 @@
       container.appendChild(tagGroup);
 
       loadConnectionDefaults(!!state.schema.supports_cloudflare_ws);
+      setupRealityFields();
       document.getElementById('step-configure').hidden = false;
       document.getElementById('step-preview').hidden = true;
       document.getElementById('step-result').hidden = true;
@@ -302,8 +307,47 @@
     document.getElementById('tls-fields').hidden = !document.getElementById('tls-enabled').checked;
   }
 
+  function toggleCloudflareFields() {
+    const enabled = document.getElementById('cf-proxied').checked;
+    document.getElementById('cf-preferred-ip-group').hidden = !enabled;
+    document.getElementById('wizard-cf-preferred-ip').disabled = !enabled;
+  }
+
+  function setupRealityFields() {
+    const toggle = form.elements.namedItem('reality_enabled');
+    const realityGroups = document.querySelectorAll(
+      '#proto-fields [data-field-name^="reality_"]:not([data-field-name="reality_enabled"])'
+    );
+    if (!toggle) {
+      realityGroups.forEach((group) => { group.hidden = true; });
+      return;
+    }
+    const update = () => {
+      const enabled = toggle.checked;
+      realityGroups.forEach((group) => { group.hidden = !enabled; });
+      const cloudflare = document.getElementById('cf-proxied');
+      const websocket = document.getElementById('ws-enabled');
+      const tls = document.getElementById('tls-enabled');
+      cloudflare.disabled = enabled || !state.schema.supports_cloudflare_ws;
+      websocket.disabled = enabled;
+      tls.disabled = enabled;
+      if (enabled) {
+        cloudflare.checked = false;
+        websocket.checked = false;
+        tls.checked = false;
+        const flow = form.elements.namedItem('flow');
+        if (flow && !flow.value) flow.value = 'xtls-rprx-vision';
+      }
+      toggleCloudflareFields();
+      toggleTlsFields();
+    };
+    toggle.addEventListener('change', update);
+    update();
+  }
+
   document.getElementById('tls-enabled').addEventListener('change', toggleTlsFields);
   document.getElementById('cf-proxied').addEventListener('change', function () {
+    toggleCloudflareFields();
     if (!this.checked) return;
     document.getElementById('ws-enabled').checked = true;
     document.getElementById('tls-enabled').checked = true;

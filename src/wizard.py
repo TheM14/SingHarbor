@@ -219,6 +219,7 @@ class DeploymentWizard:
                 "public_ipv4": profile.get("public_ipv4", ""),
                 "public_ipv6": profile.get("public_ipv6", ""),
                 "public_domain": "",
+                "cloudflare_preferred_ip": "",
                 "preferred_endpoint": direct_preferred,
                 "cloudflare_proxied": False,
             }
@@ -239,6 +240,9 @@ class DeploymentWizard:
             "public_ipv4": "",
             "public_ipv6": "",
             "public_domain": profile.get("public_domain", ""),
+            "cloudflare_preferred_ip": profile.get(
+                "cloudflare_preferred_ip", ""
+            ),
             "preferred_endpoint": "domain",
             "cloudflare_proxied": True,
         }

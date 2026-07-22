@@ -208,18 +208,35 @@ class ConfigManager:
                        kernel_path: Path | None = None,
                        auto_backup: bool = True) -> tuple[bool, str]:
         """Update an existing inbound by tag."""
+        if not isinstance(inbound, dict):
+            return False, "Inbound must be a JSON object"
+        new_tag = str(inbound.get("tag", "")).strip()
+        if not new_tag:
+            return False, "Inbound tag is required"
+
         config = self.read()
         inbounds = config.get("inbounds", [])
-
-        updated = False
-        for i, existing in enumerate(inbounds):
-            if existing.get("tag") == tag:
-                inbounds[i] = inbound
-                updated = True
-                break
-
-        if not updated:
+        target_index = next(
+            (index for index, item in enumerate(inbounds)
+             if item.get("tag") == tag),
+            None,
+        )
+        if target_index is None:
             return False, f"Inbound '{tag}' not found"
+
+        new_port = inbound.get("listen_port", 0)
+        for index, existing in enumerate(inbounds):
+            if index == target_index:
+                continue
+            if existing.get("tag") == new_tag:
+                return False, f"Tag conflict: '{new_tag}' already exists"
+            if new_port and existing.get("listen_port") == new_port:
+                return False, (
+                    f"Port conflict: port {new_port} already used by "
+                    f"'{existing.get('tag', '')}'"
+                )
+
+        inbounds[target_index] = inbound
 
         config["inbounds"] = inbounds
         return self.set_config(config, kernel_path, auto_backup=auto_backup)

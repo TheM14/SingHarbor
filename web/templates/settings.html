@@ -47,6 +47,11 @@
         <input type="checkbox" id="cloudflare-proxied">
         <span>{{ t('cloudflare_orange_cloud') }}</span>
       </label>
+      <div class="form-group">
+        <label for="cloudflare-preferred-ip">{{ t('cloudflare_preferred_ip') }}</label>
+        <input type="text" id="cloudflare-preferred-ip" placeholder="104.16.0.1 / 2606:4700::1111" autocomplete="off">
+        <div class="form-help">{{ t('cloudflare_preferred_ip_help') }}</div>
+      </div>
       <button type="submit" class="btn btn-primary">{{ t('save_endpoints') }}</button>
       <span id="endpoint-result" role="status"></span>
     </form>
@@ -122,6 +127,7 @@ function endpointPayload(){
     public_ipv4:document.getElementById('public-ipv4').value.trim(),
     public_ipv6:document.getElementById('public-ipv6').value.trim(),
     public_domain:document.getElementById('public-domain').value.trim(),
+    cloudflare_preferred_ip:document.getElementById('cloudflare-preferred-ip').value.trim(),
     preferred_endpoint:document.getElementById('preferred-endpoint').value,
     cloudflare_proxied:document.getElementById('cloudflare-proxied').checked,
     cloudflare_zone_id:document.getElementById('cloudflare-zone-id').value.trim()
@@ -179,6 +185,7 @@ async function loadSettings(){
     document.getElementById('public-ipv4').value=p.public_ipv4||'';
     document.getElementById('public-ipv6').value=p.public_ipv6||'';
     document.getElementById('public-domain').value=p.public_domain||'';
+    document.getElementById('cloudflare-preferred-ip').value=p.cloudflare_preferred_ip||'';
     document.getElementById('preferred-endpoint').value=p.preferred_endpoint||'domain';
     document.getElementById('cloudflare-proxied').checked=!!p.cloudflare_proxied;
     document.getElementById('cloudflare-zone-id').value=s.cloudflare_zone_id||'';

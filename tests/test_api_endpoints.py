@@ -1,6 +1,9 @@
+import json
+
 import pytest
 
 from src.app import create_app
+from src.utils import mask_sensitive
 
 
 @pytest.fixture()
@@ -78,6 +81,7 @@ def test_public_endpoint_settings_round_trip(authenticated_client):
             "public_ipv4": "203.0.113.10",
             "public_ipv6": "2001:db8::10",
             "public_domain": "proxy.example.com",
+            "cloudflare_preferred_ip": "104.16.0.1",
             "preferred_endpoint": "domain",
             "cloudflare_proxied": True,
             "cloudflare_zone_id": "0123456789abcdef0123456789abcdef",
@@ -86,6 +90,7 @@ def test_public_endpoint_settings_round_trip(authenticated_client):
     assert response.status_code == 200
     settings = client.get("/api/settings").get_json()
     assert settings["public_endpoints"]["public_ipv6"] == "2001:db8::10"
+    assert settings["public_endpoints"]["cloudflare_preferred_ip"] == "104.16.0.1"
     assert settings["cloudflare_zone_id"] == "0123456789abcdef0123456789abcdef"
 
 
@@ -145,8 +150,106 @@ def test_all_authenticated_pages_render(authenticated_client):
     assert "/static/js/wizard.js" in body
     assert "id=\"theme-toggle\"" in body
     quick = client.get("/dashboard/quick-deploy").get_data(as_text=True)
-    assert "/static/js/quick_deploy.js" in quick
+    assert "/static/js/quick_deploy.js?v=1.1.0-le3" in quick
     assert "id=\"quick-deploy-form\"" in quick
+    assert "id=\"quick-cf-preferred-ip\"" in quick
+    assert "id=\"quick-le-enabled\"" in quick
+    assert "id=\"quick-le-email\"" in quick
+    assert "id=\"quick-le-token\"" in quick
+    assert 'id="quick-le-fields" hidden' not in quick
+    wizard = client.get("/dashboard/wizard").get_data(as_text=True)
+    assert "id=\"wizard-cf-preferred-ip\"" in wizard
+    inbounds = client.get("/dashboard/inbounds").get_data(as_text=True)
+    assert "/static/js/inbounds.js" in inbounds
+    assert "id=\"inbound-edit-dialog\"" in inbounds
+
+
+def test_config_editor_raw_json_is_valid_and_preserves_credentials(
+        authenticated_client):
+    client, _ = authenticated_client
+    manager = client.application.config["config_manager"]
+    config = {
+        "inbounds": [{
+            "type": "trojan",
+            "tag": "trojan-in",
+            "listen": "::",
+            "listen_port": 8443,
+            "users": [{"password": "secret-value", "name": "client-after"}],
+        }],
+        "outbounds": [{"type": "direct", "tag": "direct"}],
+    }
+    ok, _ = manager.set_config(config)
+    assert ok is True
+
+    response = client.get("/api/config")
+    assert response.status_code == 200
+    raw = response.get_json()["raw"]
+    parsed = json.loads(raw)
+    assert parsed == config
+    assert parsed["inbounds"][0]["users"][0] == {
+        "password": "secret-value",
+        "name": "client-after",
+    }
+
+
+def test_log_masking_keeps_json_punctuation_valid():
+    raw = '{"password": "secret", "name": "kept", "enabled": true}'
+    masked = mask_sensitive(raw)
+
+    assert json.loads(masked) == {
+        "password": "***",
+        "name": "kept",
+        "enabled": True,
+    }
+
+
+def test_config_check_rejects_non_object_json(authenticated_client, monkeypatch):
+    client, _ = authenticated_client
+    monkeypatch.setattr(
+        client.application.config["kernel_store"],
+        "get_active",
+        lambda: {"path": "/tmp/sing-box", "version": "test"},
+    )
+
+    response = client.post("/api/config/check", json={"config": []})
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Config must be a JSON object"
+
+
+def test_config_check_sends_valid_utf8_json_to_kernel(
+        authenticated_client, monkeypatch):
+    client, _ = authenticated_client
+    app = client.application
+    monkeypatch.setattr(
+        app.config["kernel_store"],
+        "get_active",
+        lambda: {"path": "/tmp/sing-box", "version": "test"},
+    )
+    captured = {}
+
+    def check_config(kernel_path, config_path):
+        captured["kernel_path"] = str(kernel_path)
+        captured["config"] = json.loads(config_path.read_text(encoding="utf-8"))
+        return True, "configuration OK"
+
+    monkeypatch.setattr(
+        app.config["kernel_manager"], "check_config", check_config
+    )
+    config = {
+        "inbounds": [],
+        "outbounds": [{"type": "direct", "tag": "直连"}],
+    }
+
+    response = client.post("/api/config/check", json={"config": config})
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "valid": True,
+        "message": "configuration OK",
+    }
+    assert captured["config"] == config
+
 
 
 def test_quick_deploy_unexpected_error_is_returned_as_json(

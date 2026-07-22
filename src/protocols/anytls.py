@@ -7,14 +7,13 @@ Key points:
 - TLS-based protocol with padding scheme for obfuscation
 - Since sing-box 1.12.0
 - Password-based authentication (per user)
-- No standard share link format
+- Standard AnyTLS URI format from the reference implementation
 """
 
-import secrets
-import base64
+from urllib.parse import quote, urlencode
 from .base import ProtocolDefinition, ProtocolField
 from .registry import register
-from ..endpoints import client_tls
+from ..endpoints import client_tls, uri_fragment, uri_host
 
 
 @register
@@ -24,7 +23,7 @@ class AnyTLSDefinition(ProtocolDefinition):
     description = "AnyTLS protocol (TLS padding-based)"
     min_version = "1.12.0"
     supports_tls = True
-    share_link_prefix = ""
+    share_link_prefix = "anytls://"
 
     fields = [
         ProtocolField("listen", "string", default="0.0.0.0",
@@ -75,12 +74,26 @@ class AnyTLSDefinition(ProtocolDefinition):
             "server_port": port,
             "password": password,
         }
-        tls = client_tls(config)
+        tls = client_tls(config, server_address)
         if tls:
             client_config["tls"] = tls
 
+        query = {}
+        if tls and tls.get("server_name"):
+            query["sni"] = tls["server_name"]
+        if tls and tls.get("insecure"):
+            query["insecure"] = "1"
+        share_link = (
+            f"anytls://{quote(password, safe='')}@"
+            f"{uri_host(server_address)}:{port}/"
+        )
+        if query:
+            share_link += "?" + urlencode(query)
+        if config.get("tag"):
+            share_link += f"#{uri_fragment(config['tag'])}"
+
         return {
-            "share_link": "",
+            "share_link": share_link,
             "config_snippet": client_config,
             "credentials": {
                 "password": password,
@@ -88,7 +101,6 @@ class AnyTLSDefinition(ProtocolDefinition):
                 "port": port,
             },
             "notes": [
-                "AnyTLS has no standard share link format.",
                 "Requires TLS. The padding scheme defaults to the standard configuration.",
                 "Since sing-box 1.12.0."
             ],

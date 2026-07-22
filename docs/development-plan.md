@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Version**: 0.1.0 (Phase 1 & 2 MVP)
+**Version**: 1.1.0
 
 ## Phase 1: Foundation (Completed)
 
@@ -37,12 +37,17 @@
 - [x] Client connection info generation
 - [x] Inbound analysis from existing config
 
-## Phase 4: Extensions (Planned)
+## Phase 4: Extensions (In progress)
 
-- [ ] Kernel download from GitHub releases
-- [ ] More protocols (Hysteria2, TUIC, etc.)
-- [ ] Inbound management (edit/update)
-- [ ] QR code generation for share links
+- [x] Kernel download from GitHub releases
+- [x] More protocols (Hysteria2, TUIC, AnyTLS, etc.)
+- [x] Inbound management (edit/update)
+- [x] QR code generation for share links
+- [x] Bulk client export with URI and client JSON fallbacks
+- [x] Direct VLESS Reality deployment and share links
+- [x] AnyTLS URI generation
+- [x] Let's Encrypt issuance through Cloudflare DNS-01 for direct TLS
+- [x] Public-certificate takeover for existing direct TLS inbounds
 - [ ] Configuration merge (sing-box merge)
 - [ ] Advanced transport configuration UI
 
@@ -73,5 +78,7 @@
 - Configuration backup/restore
 - Atomic save and conflict detection
 - Protocol parameter validation
+- Reality and AnyTLS client/server compatibility mapping
+- Bulk export, QR generation, and inbound replacement
 - Sensitive data masking
 - Path sandbox enforcement

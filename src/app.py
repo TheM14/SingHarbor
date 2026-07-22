@@ -81,8 +81,12 @@ def create_app(config_path: Path | None = None,
     from .wizard import DeploymentWizard
     wizard = DeploymentWizard(config_mgr, kernel_mgr, process_mgr, app_cfg)
 
+    from .certificates import LetsEncryptIssuer
     from .quick_deploy import QuickDeploymentService
-    quick_deployment = QuickDeploymentService(config_mgr, process_mgr, app_cfg)
+    certificate_issuer = LetsEncryptIssuer(app_cfg.data_dir)
+    quick_deployment = QuickDeploymentService(
+        config_mgr, process_mgr, app_cfg, certificate_issuer
+    )
 
     flask_options = {
         "template_folder": Path(__file__).parent.parent / "web" / "templates",
@@ -103,6 +107,7 @@ def create_app(config_path: Path | None = None,
     app.config["operation_log_store"] = operation_log_store
     app.config["protocol_store"] = protocol_store
     app.config["deployment_wizard"] = wizard
+    app.config["certificate_issuer"] = certificate_issuer
     app.config["quick_deployment"] = quick_deployment
 
     from .views import auth_bp, setup_bp, api_bp, ui_bp

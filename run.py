@@ -8,7 +8,7 @@ Usage:
     python run.py --config config.json   # Custom config file
     python run.py --debug                # Debug mode
 
-Install dependencies from requirements.txt in any Python 3.11+ environment.
+Install dependencies from requirements.txt in a Python 3.12+ environment.
 """
 
 import sys

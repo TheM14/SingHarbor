@@ -63,6 +63,17 @@ def normalize_ip(value: str, version: int) -> str:
     return address.compressed
 
 
+def normalize_ip_literal(value: str) -> str:
+    """Validate and canonicalize an IPv4 or IPv6 literal."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return ipaddress.ip_address(raw).compressed
+    except ValueError as exc:
+        raise ValueError("must be a valid IPv4 or IPv6 address") from exc
+
+
 def uri_host(address: str) -> str:
     """Format an address for the authority component of a URI."""
     try:
@@ -97,6 +108,26 @@ def build_endpoint_profile(values: dict | None) -> tuple[dict, list[str]]:
     except ValueError as exc:
         domain = ""
         errors.append(f"public_domain: {exc}")
+    try:
+        cloudflare_preferred_ip = normalize_ip_literal(
+            values.get("cloudflare_preferred_ip", "")
+        )
+    except ValueError as exc:
+        cloudflare_preferred_ip = ""
+        errors.append(f"cloudflare_preferred_ip: {exc}")
+
+    reality_public_key = str(values.get("reality_public_key", "") or "").strip()
+    if reality_public_key and not re.fullmatch(
+        r"[A-Za-z0-9_-]{43}=?", reality_public_key
+    ):
+        errors.append("reality_public_key: must be an X25519 public key")
+    reality_fingerprint = str(
+        values.get("reality_fingerprint", "chrome") or "chrome"
+    ).strip().lower()
+    if reality_fingerprint not in {
+        "chrome", "firefox", "edge", "safari", "ios", "android", "random"
+    }:
+        errors.append("reality_fingerprint: unsupported client fingerprint")
 
     cloudflare_proxied = as_bool(values.get("cloudflare_proxied", False))
     if cloudflare_proxied and not domain:
@@ -114,6 +145,9 @@ def build_endpoint_profile(values: dict | None) -> tuple[dict, list[str]]:
         "public_ipv4": ipv4,
         "public_ipv6": ipv6,
         "public_domain": domain,
+        "cloudflare_preferred_ip": cloudflare_preferred_ip,
+        "reality_public_key": reality_public_key,
+        "reality_fingerprint": reality_fingerprint,
         "preferred_endpoint": preferred,
         "cloudflare_proxied": cloudflare_proxied,
     }, errors
@@ -227,6 +261,28 @@ def client_tls(config: dict, fallback_server_name: str = "") -> dict | None:
     result = {"enabled": True}
     if server_name:
         result["server_name"] = server_name
+    reality = tls.get("reality")
+    if (
+        isinstance(reality, dict)
+        and reality
+        and reality.get("enabled") is not False
+    ):
+        public_key = str(reality.get("public_key", "")).strip()
+        short_ids = reality.get("short_id", "")
+        if isinstance(short_ids, list):
+            short_id = str(short_ids[0] if short_ids else "")
+        else:
+            short_id = str(short_ids or "")
+        if public_key:
+            result["reality"] = {
+                "enabled": True,
+                "public_key": public_key,
+                "short_id": short_id,
+            }
+        fingerprint = str(
+            reality.get("client_fingerprint", "chrome") or "chrome"
+        ).strip()
+        result["utls"] = {"enabled": True, "fingerprint": fingerprint}
     return result
 
 
@@ -234,24 +290,58 @@ def build_client_bundle(proto, inbound: dict, profile: dict | None) -> dict:
     """Generate all configured direct and domain client variants."""
     normalized, errors = build_endpoint_profile(profile)
     variants = []
+    cloudflare_ip = (
+        normalized["cloudflare_preferred_ip"]
+        if normalized["cloudflare_proxied"] else ""
+    )
+    domain_address = cloudflare_ip or normalized["public_domain"]
+    if cloudflare_ip:
+        ip_version = ipaddress.ip_address(cloudflare_ip).version
+        domain_label = f"Cloudflare preferred IPv{ip_version}"
+    else:
+        domain_label = (
+            "Cloudflare domain" if normalized["cloudflare_proxied"] else "Domain"
+        )
     entries = (
         ("ipv4", "IPv4 direct", normalized["public_ipv4"], False),
         ("ipv6", "IPv6 direct", normalized["public_ipv6"], False),
         (
             "domain",
-            "Cloudflare domain" if normalized["cloudflare_proxied"] else "Domain",
-            normalized["public_domain"],
+            domain_label,
+            domain_address,
             normalized["cloudflare_proxied"],
         ),
     )
     for kind, label, address, proxied in entries:
         if not address:
             continue
-        info = proto.generate_client_info(inbound, address)
+        client_inbound = inbound
+        if kind == "domain" and cloudflare_ip and normalized["public_domain"]:
+            client_inbound = copy.deepcopy(inbound)
+            tls = client_inbound.get("tls")
+            if isinstance(tls, dict) and tls.get("enabled") is not False:
+                tls.setdefault("server_name", normalized["public_domain"])
+        if normalized["reality_public_key"]:
+            if client_inbound is inbound:
+                client_inbound = copy.deepcopy(inbound)
+            tls = client_inbound.get("tls")
+            if (
+                isinstance(tls, dict)
+                and isinstance(tls.get("reality"), dict)
+                and tls["reality"]
+                and tls["reality"].get("enabled") is not False
+            ):
+                tls["reality"]["public_key"] = normalized["reality_public_key"]
+                tls["reality"]["client_fingerprint"] = normalized[
+                    "reality_fingerprint"
+                ]
+        info = proto.generate_client_info(client_inbound, address)
         variants.append({
             "kind": kind,
             "label": label,
             "address": address,
+            "domain": normalized["public_domain"] if kind == "domain" else "",
+            "uses_cloudflare_preferred_ip": bool(kind == "domain" and cloudflare_ip),
             "cloudflare_proxied": proxied,
             **info,
         })

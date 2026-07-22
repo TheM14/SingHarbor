@@ -326,17 +326,18 @@ def process_restart():
 def config_get():
     comp = get_app_components()
     config_mgr = comp["config_mgr"]
-    from ..utils import mask_sensitive
 
     try:
         if config_mgr.exists:
             raw = config_mgr.config_path.read_text("utf-8")
             config = json.loads(raw)
-            masked_raw = mask_sensitive(raw)
         else:
             config = config_mgr.read()
-            masked_raw = json.dumps(config, indent=2)
-        return jsonify({"config": config, "raw": masked_raw})
+            raw = json.dumps(config, indent=2, ensure_ascii=False)
+        # This authenticated endpoint already returns the parsed configuration.
+        # Returning the same raw JSON keeps the editor valid and prevents masked
+        # placeholders from being saved over real credentials.
+        return jsonify({"config": config, "raw": raw})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -379,11 +380,15 @@ def config_check():
 
     data = _get_body()
     config = data.get("config")
+    if not isinstance(config, dict):
+        return jsonify({"error": "Config must be a JSON object"}), 400
 
     import tempfile
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    )
     try:
-        json.dump(config or config_mgr.read(), tmp)
+        json.dump(config, tmp, ensure_ascii=False)
         tmp.close()
 
         kernel_path = Path(active["path"])
@@ -609,6 +614,35 @@ def inbounds_list():
     return jsonify({"inbounds": masked})
 
 
+@api_bp.route("/inbounds/export", methods=["GET"])
+@login_required
+def inbounds_export():
+    """Export every configured inbound and all available client variants."""
+    comp = get_app_components()
+    from ..exporter import build_client_export
+
+    result = build_client_export(
+        comp["config_mgr"].read(),
+        endpoint_profile=comp["app_config"].public_endpoints,
+        endpoint_profiles=comp["app_config"].inbound_endpoint_profiles,
+    )
+    return jsonify(result)
+
+
+@api_bp.route("/tools/qr", methods=["POST"])
+@login_required
+@csrf_protected
+def qr_code():
+    """Generate a QR code for one share link or client JSON value."""
+    from ..exporter import generate_qr_data_url
+
+    try:
+        data_url = generate_qr_data_url(_get_body().get("value", ""))
+    except (ValueError, RuntimeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"data_url": data_url})
+
+
 @api_bp.route("/inbounds/<tag>", methods=["GET"])
 @login_required
 def inbound_detail(tag):
@@ -641,6 +675,85 @@ def inbound_detail(tag):
     )
 
     return jsonify({"inbound": mask_sensitive_inbound_info(info)})
+
+
+@api_bp.route("/inbounds/<tag>/edit", methods=["GET"])
+@login_required
+def inbound_edit_data(tag):
+    """Return the raw inbound and client-only endpoint profile for editing."""
+    comp = get_app_components()
+    inbound = next(
+        (item for item in comp["config_mgr"].get_inbounds()
+         if item.get("tag") == tag),
+        None,
+    )
+    if inbound is None:
+        return jsonify({"error": "Inbound not found"}), 404
+    profile = (
+        comp["app_config"].inbound_endpoint_profiles.get(tag)
+        or comp["app_config"].public_endpoints
+    )
+    return jsonify({"inbound": inbound, "endpoint_profile": profile})
+
+
+@api_bp.route("/inbounds/<tag>", methods=["PUT"])
+@login_required
+@csrf_protected
+def inbound_update(tag):
+    """Atomically validate and replace an existing inbound in place."""
+    comp = get_app_components()
+    data = _get_body()
+    inbound = data.get("inbound")
+    if not isinstance(inbound, dict):
+        return jsonify({"error": "inbound: must be a JSON object"}), 400
+
+    profile = data.get("endpoint_profile")
+    normalized_profile = None
+    if profile is not None:
+        if not isinstance(profile, dict):
+            return jsonify({"error": "endpoint_profile: must be a JSON object"}), 400
+        from ..endpoints import build_endpoint_profile
+        normalized_profile, errors = build_endpoint_profile(profile)
+        if errors:
+            return jsonify({"error": "; ".join(errors), "errors": errors}), 400
+
+    kernel_store = current_app.config["kernel_store"]
+    active = kernel_store.get_active()
+    kernel_path = Path(active["path"]) if active else None
+    ok, message = comp["config_mgr"].update_inbound(tag, inbound, kernel_path)
+    if not ok:
+        return jsonify({"error": message}), 400
+
+    new_tag = str(inbound.get("tag", ""))
+    if profile is not None or new_tag != tag:
+        if profile is None:
+            normalized_profile = (
+                comp["app_config"].inbound_endpoint_profiles.get(tag)
+                or comp["app_config"].public_endpoints
+            )
+        comp["app_config"].replace_inbound_endpoint_profile(
+            tag, new_tag, normalized_profile
+        )
+
+    restart_warning = ""
+    if data.get("restart", True) and active:
+        try:
+            if comp["process_mgr"].status().running:
+                log_path = (
+                    comp["config_mgr"].config_path.parent / "logs" / "sing-box.log"
+                )
+                comp["process_mgr"].restart(
+                    kernel_path, comp["config_mgr"].config_path, log_path
+                )
+        except Exception as exc:
+            restart_warning = f"Inbound saved, but restart failed: {exc}"
+
+    return jsonify({
+        "success": True,
+        "message": message,
+        "tag": new_tag,
+        "warning": restart_warning,
+    })
 
 
 @api_bp.route("/inbounds/<tag>", methods=["DELETE"])

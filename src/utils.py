@@ -18,7 +18,8 @@ UUID_PATTERN = re.compile(
 
 SENSITIVE_KEYS = {
     "password", "uuid", "private_key", "secret", "token",
-    "psk", "auth", "key", "credentials",
+    "psk", "auth", "key", "credentials", "api_token",
+    "cloudflare_api_token",
 }
 
 LOG_MASK = "***"
@@ -51,7 +52,7 @@ def mask_sensitive(text: str) -> str:
             flags=re.IGNORECASE
         )
         text = re.sub(
-            rf'("{key}"\s*:\s*)(\S+)',
+            rf'("{key}"\s*:\s*)(?!")([^,\s}}\]]+)',
             rf'\1"{LOG_MASK}"',
             text,
             flags=re.IGNORECASE

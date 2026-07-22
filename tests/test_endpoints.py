@@ -54,13 +54,28 @@ def test_endpoint_profile_normalizes_all_variants():
         "public_ipv4": "203.0.113.10",
         "public_ipv6": "2001:0db8::10",
         "public_domain": "Proxy.Example.COM.",
+        "cloudflare_preferred_ip": "2606:4700:4700:0:0:0:0:1111",
         "cloudflare_proxied": "true",
         "preferred_endpoint": "domain",
     })
     assert errors == []
     assert profile["public_ipv6"] == "2001:db8::10"
     assert profile["public_domain"] == "proxy.example.com"
+    assert profile["cloudflare_preferred_ip"] == "2606:4700:4700::1111"
     assert profile["cloudflare_proxied"] is True
+
+
+def test_endpoint_profile_rejects_invalid_cloudflare_preferred_ip():
+    profile, errors = build_endpoint_profile({
+        "public_domain": "proxy.example.com",
+        "cloudflare_preferred_ip": "not-an-ip",
+        "cloudflare_proxied": True,
+    })
+
+    assert profile["cloudflare_preferred_ip"] == ""
+    assert errors == [
+        "cloudflare_preferred_ip: must be a valid IPv4 or IPv6 address"
+    ]
 
 
 @pytest.mark.parametrize("protocol_type", ["vmess", "vless", "trojan"])
@@ -94,6 +109,59 @@ def test_cloudflare_ws_protocols_generate_domain_only_listener(protocol_type):
         assert payload["sni"] == "proxy.example.com"
     else:
         assert "@proxy.example.com:443" in domain["share_link"]
+
+
+@pytest.mark.parametrize("protocol_type", ["vmess", "vless", "trojan"])
+@pytest.mark.parametrize("preferred_ip", [
+    "104.16.0.1",
+    "2606:4700:4700::1111",
+])
+def test_cloudflare_preferred_ip_changes_only_client_address(
+        protocol_type, preferred_ip):
+    params = _params(protocol_type)
+    params["public_ipv4"] = ""
+    params["public_ipv6"] = ""
+    params["cloudflare_preferred_ip"] = preferred_ip
+    wizard = DeploymentWizard(None, None, None)
+
+    entries = wizard.build_deployment_entries(protocol_type, params)
+    without_preferred_ip = dict(params)
+    without_preferred_ip.pop("cloudflare_preferred_ip")
+    baseline_entries = wizard.build_deployment_entries(
+        protocol_type, without_preferred_ip
+    )
+
+    assert len(entries) == 1
+    assert entries[0]["inbound"] == baseline_entries[0]["inbound"]
+    assert "cloudflare_preferred_ip" not in json.dumps(entries[0]["inbound"])
+
+    bundle = build_client_bundle(
+        get_by_type(protocol_type), entries[0]["inbound"], entries[0]["profile"]
+    )
+    variant = bundle["variants"][0]
+    assert variant["kind"] == "domain"
+    assert variant["address"] == preferred_ip
+    assert variant["domain"] == "proxy.example.com"
+    assert variant["uses_cloudflare_preferred_ip"] is True
+    assert variant["config_snippet"]["server"] == preferred_ip
+    assert variant["config_snippet"]["tls"]["server_name"] == (
+        "proxy.example.com"
+    )
+    assert variant["config_snippet"]["transport"]["headers"]["Host"] == (
+        "proxy.example.com"
+    )
+
+    if protocol_type == "vmess":
+        payload = json.loads(base64.b64decode(
+            variant["share_link"].split("//", 1)[1]
+        ))
+        assert payload["add"] == preferred_ip
+        assert payload["host"] == "proxy.example.com"
+        assert payload["sni"] == "proxy.example.com"
+    elif ":" in preferred_ip:
+        assert f"@[{preferred_ip}]:443" in variant["share_link"]
+    else:
+        assert f"@{preferred_ip}:443" in variant["share_link"]
 
 
 @pytest.mark.parametrize("protocol_type", ["vmess", "vless"])

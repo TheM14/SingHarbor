@@ -6,6 +6,12 @@
   const text = window.QUICK_DEPLOY_I18N || {};
   const form = document.getElementById('quick-deploy-form');
   const resultSection = document.getElementById('quick-result');
+  const letsEncryptToggle = document.getElementById('quick-le-enabled');
+
+  function syncLetsEncryptFields() {
+    const enabled = letsEncryptToggle.checked;
+    document.getElementById('quick-le-email').required = enabled;
+  }
 
   function copyValue(value) {
     navigator.clipboard.writeText(value).then(
@@ -70,6 +76,34 @@
       note.textContent = warning;
       summary.appendChild(note);
     });
+    if (result.certificate) {
+      const certificate = result.certificate;
+      const card = document.createElement('article');
+      card.className = 'endpoint-card';
+      const heading = document.createElement('h3');
+      heading.textContent = text.certificate_verified || 'Let\'s Encrypt certificate verified';
+      card.appendChild(heading);
+      const details = [
+        [text.certificate_issuer || 'Issuer', certificate.issuer],
+        [text.certificate_valid_until || 'Valid until', certificate.not_after],
+        [text.certificate_fingerprint || 'SHA-256 fingerprint', certificate.sha256_fingerprint],
+        [text.certificate_path || 'Certificate path', certificate.certificate_path],
+        [text.certificate_receipt || 'Verification receipt', certificate.receipt_path],
+        [text.certificate_inbounds || 'Configured inbounds', (certificate.configured_inbounds || []).join(', ')],
+        [text.certificate_dns_auth || 'DNS authentication', `${certificate.dns_authenticator || 'dns-cloudflare'} (${certificate.token_source || 'unknown'})`],
+      ];
+      details.forEach(([label, value]) => {
+        if (!value) return;
+        const row = document.createElement('p');
+        const strong = document.createElement('strong');
+        strong.textContent = `${label}: `;
+        const content = document.createElement('code');
+        content.textContent = value;
+        row.append(strong, content);
+        card.appendChild(row);
+      });
+      summary.appendChild(card);
+    }
 
     const protocolGrid = document.getElementById('quick-protocols');
     protocolGrid.replaceChildren();
@@ -128,7 +162,11 @@
     setLoading(button, text.loading || 'Deploying...');
     const payload = {
       public_domain: document.getElementById('quick-domain').value.trim(),
+      cloudflare_preferred_ip: document.getElementById('quick-cf-preferred-ip').value.trim(),
       certificate_directory: document.getElementById('quick-cert-dir').value.trim(),
+      lets_encrypt_enabled: letsEncryptToggle.checked,
+      lets_encrypt_email: document.getElementById('quick-le-email').value.trim(),
+      cloudflare_api_token: document.getElementById('quick-le-token').value.trim(),
       public_ipv4: document.getElementById('quick-ipv4').value.trim(),
       public_ipv6: document.getElementById('quick-ipv6').value.trim(),
       restart: true,
@@ -141,6 +179,7 @@
         ? messages.join(' · ') : error.message;
       if (error.data && error.data.protocols) renderResult(error.data);
     } finally {
+      document.getElementById('quick-le-token').value = '';
       resetLoading(button);
     }
   });
@@ -148,7 +187,10 @@
   API.get('/api/settings').then((settings) => {
     const endpoints = settings.public_endpoints || {};
     document.getElementById('quick-domain').value = endpoints.public_domain || '';
+    document.getElementById('quick-cf-preferred-ip').value = endpoints.cloudflare_preferred_ip || '';
     document.getElementById('quick-ipv4').value = endpoints.public_ipv4 || '';
     document.getElementById('quick-ipv6').value = endpoints.public_ipv6 || '';
   }).catch(() => {});
+  letsEncryptToggle.addEventListener('change', syncLetsEncryptFields);
+  syncLetsEncryptFields();
 })();

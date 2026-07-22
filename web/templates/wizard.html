@@ -89,6 +89,11 @@
           <input type="checkbox" id="cf-proxied" name="cloudflare_proxied">
           <span>{{ t('cloudflare_orange_cloud') }}</span>
         </label>
+        <div class="form-group" id="cf-preferred-ip-group" hidden>
+          <label for="wizard-cf-preferred-ip">{{ t('cloudflare_preferred_ip') }}</label>
+          <input type="text" id="wizard-cf-preferred-ip" name="cloudflare_preferred_ip" placeholder="104.16.0.1 / 2606:4700::1111">
+          <div class="form-help">{{ t('cloudflare_preferred_ip_help') }}</div>
+        </div>
         <div class="field-note">{{ t('cloudflare_ws_note') }}</div>
       </div>
 

@@ -16,6 +16,11 @@
               <label for="quick-domain">{{ t('public_domain') }}</label>
               <input id="quick-domain" name="public_domain" type="text" placeholder="proxy.example.com" autocomplete="off">
             </div>
+            <div class="form-group">
+              <label for="quick-cf-preferred-ip">{{ t('cloudflare_preferred_ip') }}</label>
+              <input id="quick-cf-preferred-ip" name="cloudflare_preferred_ip" type="text" placeholder="104.16.0.1 / 2606:4700::1111" autocomplete="off">
+              <div class="form-help">{{ t('cloudflare_preferred_ip_help') }}</div>
+            </div>
           </div>
         </section>
 
@@ -27,6 +32,23 @@
             <div class="form-group">
               <label for="quick-cert-dir">{{ t('certificate_directory') }}</label>
               <input id="quick-cert-dir" name="certificate_directory" type="text" placeholder="/etc/letsencrypt/live/proxy.example.com" autocomplete="off">
+            </div>
+            <label class="check-row">
+              <input id="quick-le-enabled" name="lets_encrypt_enabled" type="checkbox">
+              <span>{{ t('lets_encrypt_enabled') }}</span>
+            </label>
+            <div id="quick-le-fields">
+              <div class="form-group">
+                <label for="quick-le-email">{{ t('lets_encrypt_email') }}</label>
+                <input id="quick-le-email" name="lets_encrypt_email" type="email" autocomplete="email" placeholder="admin@example.com">
+                <div class="form-help">{{ t('lets_encrypt_email_help') }}</div>
+              </div>
+              <div class="form-group">
+                <label for="quick-le-token">{{ t('lets_encrypt_cloudflare_token') }}</label>
+                <input id="quick-le-token" name="cloudflare_api_token" type="password" autocomplete="off">
+                <div class="form-help">{{ t('lets_encrypt_cloudflare_token_help') }}</div>
+              </div>
+              <div class="field-note">{{ t('lets_encrypt_renewal_help') }}</div>
             </div>
           </div>
         </section>
@@ -75,8 +97,16 @@ window.QUICK_DEPLOY_I18N = {{ {
   'client_json': t('client_json'),
   'skipped': t('skipped_protocols'),
   'no_link': t('json_only'),
-  'loading': t('deploying_all')
+  'loading': t('deploying_all'),
+  'certificate_verified': t('lets_encrypt_verified'),
+  'certificate_issuer': t('certificate_issuer'),
+  'certificate_valid_until': t('certificate_valid_until'),
+  'certificate_fingerprint': t('certificate_fingerprint'),
+  'certificate_path': t('certificate_path'),
+  'certificate_receipt': t('certificate_receipt'),
+  'certificate_inbounds': t('certificate_inbounds'),
+  'certificate_dns_auth': t('certificate_dns_auth')
 }|tojson }};
 </script>
-<script src="/static/js/quick_deploy.js"></script>
+<script src="/static/js/quick_deploy.js?v=1.1.0-le3"></script>
 {% endblock %}

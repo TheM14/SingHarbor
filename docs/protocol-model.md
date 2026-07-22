@@ -64,6 +64,8 @@ class ProtocolField:
 - **Share**: vless://{uuid}@{server}:{port}?...
 - **Flow**: xtls-rprx-vision
 - **TLS/Transport**: Supported
+- **Reality**: Direct TCP only; server private key remains in sing-box JSON,
+  while the public key and client fingerprint remain in endpoint metadata
 
 ### Hysteria2
 - **Auth**: Password-based
@@ -95,7 +97,7 @@ class ProtocolField:
 
 ### AnyTLS
 - **Auth**: Password-based
-- **Share**: No standard format
+- **Share**: anytls://{password}@{server}:{port}/?sni=...
 - **Min version**: sing-box 1.12.0
 - **Padding**: Configurable TLS padding scheme
 
@@ -136,19 +138,30 @@ Both inbounds are validated and written in one configuration update, followed
 by a single process restart. Trojan is not offered in plaintext split mode
 because its direct listener requires TLS.
 
-The certificate belongs only to the CDN inbound. A Cloudflare Origin CA
-certificate is appropriate when the hostname always remains behind the orange
-cloud. Use a publicly trusted certificate if clients may connect to that TLS
-origin directly. The plaintext IP inbound does not use either certificate.
+The certificate-directory certificate belongs to the CDN inbound. A
+Cloudflare Origin CA certificate is appropriate when the hostname always
+remains behind the orange cloud. Direct TLS inbounds use a separate publicly
+trusted Let's Encrypt certificate issued through Cloudflare DNS-01, or another
+publicly trusted full chain. Enabling issuance atomically replaces the
+certificate paths on matching existing direct TLS inbounds. Plaintext IP
+inbounds do not use either certificate.
 
 ## One-click Protocol Matrix
 
-One-click deployment builds a capability-based plan from three optional input
-blocks. IP addresses enable native Shadowsocks/VMess/VLESS. A domain plus a
-validated certificate directory enables VMess/VLESS/Trojan Cloudflare
-WebSocket routes. Combining all inputs also enables direct TLS routes for
-Trojan, Hysteria2, TUIC, Hysteria v1, and AnyTLS. The complete plan contains 11
-inbounds for 8 protocols, with unique automatically allocated ports.
+One-click deployment builds a capability-based plan from three input blocks.
+IP addresses enable native Shadowsocks/VMess/VLESS. A domain plus either a
+validated certificate directory or an issued Let's Encrypt certificate enables
+VMess/VLESS/Trojan Cloudflare WebSocket routes. A public certificate and IP
+addresses enable direct TLS routes for Trojan, Hysteria2, TUIC, Hysteria v1,
+and AnyTLS. The complete plan contains 11 inbounds for 8 protocols, with unique
+automatically allocated ports.
+
+Let's Encrypt issuance uses Certbot's Cloudflare DNS plugin. The API token is
+passed through a mode-0600 temporary credentials file which is overwritten and
+removed after Certbot exits. It is not stored in settings, the database, API
+responses, or the sing-box configuration. The administrator re-runs issuance
+before expiry; `CLOUDFLARE_API_TOKEN` avoids re-entering the token but does not
+create a background renewal schedule.
 Port 443 is reserved for an Nginx-hosted WebUI; quick-deploy CDN listeners use
 2053, 2083, 2087, 2096, and 8443. The manual wizard still permits port 443.
 

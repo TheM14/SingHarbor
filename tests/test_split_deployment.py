@@ -18,6 +18,7 @@ def _vmess_params():
         "public_ipv4": "203.0.113.10",
         "public_ipv6": "2001:db8::10",
         "public_domain": "proxy.example.com",
+        "cloudflare_preferred_ip": "104.16.0.1",
         "preferred_endpoint": "domain",
         "cloudflare_proxied": True,
         "ws_enabled": True,
@@ -55,6 +56,7 @@ def test_split_deployment_is_saved_together_and_analyzed_per_inbound(tmp_path):
     assert "transport" not in stored[0]
     assert stored[1]["tls"]["enabled"] is True
     assert stored[1]["transport"]["type"] == "ws"
+    assert "cloudflare_preferred_ip" not in str(stored)
 
     analyzed = analyze_inbounds(
         config_mgr.read(),
@@ -66,6 +68,11 @@ def test_split_deployment_is_saved_together_and_analyzed_per_inbound(tmp_path):
         "ipv4", "ipv6"
     ]
     assert [option["kind"] for option in cdn["client_options"]] == ["domain"]
+    assert cdn["client_options"][0]["address"] == "104.16.0.1"
+    assert cdn["client_options"][0]["config_snippet"]["server"] == "104.16.0.1"
+    assert cdn["client_options"][0]["config_snippet"]["tls"]["server_name"] == (
+        "proxy.example.com"
+    )
     assert all(
         "tls" not in option["config_snippet"]
         for option in direct["client_options"]
