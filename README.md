@@ -151,12 +151,6 @@ actually updated. The same token-free evidence is stored in
 | Certbot account and issued certificate material | `<project>/data/letsencrypt/` |
 | Downloaded kernels | `<project>/kernels/` |
 
-## Tests
-
-```bash
-pytest tests/ -v
-```
-
 ## Uninstall
 
 Stop SingHarbor and remove its project directory. If you created a dedicated
